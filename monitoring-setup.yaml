@@ -1,6 +1,9 @@
 ---
 - name: Deploy Prometheus and Grafana stack in Kubernetes
   hosts: local
+  vars:
+    telegram_bot_token: "8965482412:AAFD22AI1Qf_j34fqRCiL1E3VG4Nv3YzILk"
+    telegram_chat_id: "5209781777"
   tasks:
     - name: Ensure Helm repo for Prometheus Community is added
       ansible.builtin.command:
@@ -21,25 +24,72 @@
         state: present
         kubeconfig: ~/.kube/config
 
-    - name: Install or upgrade kube-prometheus-stack using Helm
+    - name: Install or upgrade kube-prometheus-stack
       ansible.builtin.command:
         cmd: >
           helm upgrade --install prometheus prometheus-community/kube-prometheus-stack
           --namespace monitoring
           --create-namespace
           --set grafana.adminPassword=YourSecurePassword
-          --wait
+          --set grafana.image.pullPolicy=IfNotPresent
+          --set kubeStateMetrics.enabled=true
+          --set kubeStateMetrics.image.registry=""
+          --set kubeStateMetrics.image.repository=databahn/kube-state-metrics
+          --set kubeStateMetrics.image.tag=v2.13.0
+          --set kubeStateMetrics.image.pullPolicy=IfNotPresent
+          --set prometheus-node-exporter.enabled=false
+          --set prometheus.prometheusSpec.resources.requests.memory=256Mi
+          --set prometheus.prometheusSpec.resources.requests.cpu=100m
+          --set grafana.resources.requests.memory=128Mi
+          --set grafana.resources.requests.cpu=100m
       register: helm_install_result
       changed_when: "'STATUS: deployed' in helm_install_result.stdout"
 
-    - name: Wait for Grafana pod to be ready
-      kubernetes.core.k8s_info:
-        kind: Pod
-        namespace: monitoring
-        label_selectors:
-          - "app.kubernetes.io/name=grafana"
+    - name: Create Secret for Telegram Bot Token
+      kubernetes.core.k8s:
+        state: present
         kubeconfig: ~/.kube/config
-      register: grafana_pod_info
-      until: grafana_pod_info.resources[0].status.phase == "Running"
-      retries: 30
-      delay: 10
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: alertmanager-telegram-secret
+            namespace: monitoring
+          type: Opaque
+          stringData:
+            bot-token: "{{ telegram_bot_token }}"
+
+    - name: Create AlertmanagerConfig for Telegram
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: ~/.kube/config
+        definition:
+          apiVersion: monitoring.coreos.com/v1alpha1
+          kind: AlertmanagerConfig
+          metadata:
+            name: alertmanager-telegram-config
+            namespace: monitoring
+            labels:
+              alertmanagerConfig: alertmanager-telegram-config
+          spec:
+            route:
+              receiver: 'telegram'
+              groupBy: ['alertname', 'job']
+              groupWait: 30s
+              groupInterval: 5m
+              repeatInterval: 1h
+              routes:
+                - receiver: 'telegram'
+                  matchers:
+                    - name: severity
+                      matchType: '=~'
+                      value: 'critical|warning'
+            receivers:
+              - name: 'telegram'
+                telegramConfigs:
+                  - botToken:
+                      name: alertmanager-telegram-secret
+                      key: bot-token
+                    chatID: 5209781777
+                    apiURL: 'https://api.telegram.org'
+                    sendResolved: true
