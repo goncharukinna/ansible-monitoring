@@ -1,0 +1,14 @@
+- name: Test playbook
+  hosts: containers
+  tasks:
+    - name: Print hello
+      ansible.builtin.debug:
+        msg: "Hello from {{ inventory_hostname }}!"
+
+    - name: Show disk space
+      ansible.builtin.command: df -h
+      register: disk_info
+
+    - name: Print disk info
+      ansible.builtin.debug:
+        var: disk_info.stdout_lines
