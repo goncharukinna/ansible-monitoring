@@ -1,0 +1,87 @@
+---
+- name: Deploy all Telegram bots to Kubernetes
+  hosts: local
+  gather_facts: no
+
+  tasks:
+    - name: Check Kubernetes connection
+      kubernetes.core.k8s_cluster_info:
+        kubeconfig: "{{ kubeconfig }}"
+      register: k8s_info
+
+    - name: Ensure namespace exists
+      kubernetes.core.k8s:
+        name: "{{ namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+        kubeconfig: "{{ kubeconfig }}"
+
+    - name: Check that all bot token secrets exist
+      kubernetes.core.k8s_info:
+        kind: Secret
+        namespace: "{{ namespace }}"
+        name: "{{ item.token_secret }}"
+        kubeconfig: "{{ kubeconfig }}"
+      loop: "{{ bots }}"
+      register: secrets_check
+
+    - name: Fail if some secret is missing
+      ansible.builtin.fail:
+        msg: "Secret '{{ item.item.token_secret }}' not found!"
+      when: item.resources | length == 0
+      loop: "{{ secrets_check.results }}"
+      loop_control:
+        label: "{{ item.item.token_secret }}"
+
+    - name: Deploy each bot from template
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig }}"
+        template: templates/deployment.yaml.j2
+        wait: yes
+        wait_timeout: 120
+      vars:
+        bot: "{{ item }}"
+      loop: "{{ bots }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Get all pods in namespace
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ namespace }}"
+        kubeconfig: "{{ kubeconfig }}"
+      register: all_pods
+
+    - name: Filter bot pods by name
+      ansible.builtin.set_fact:
+        bot_pods: >-
+          {{
+            all_pods.resources
+            | selectattr('metadata.name', 'match', '^(hello-bot|cat-bot|echo-bot|random-bot)-')
+            | list
+          }}
+
+    - name: Show status of all bot pods
+      ansible.builtin.debug:
+        msg: "✅ {{ item.metadata.name }} — {{ item.status.phase }}"
+      loop: "{{ bot_pods }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    - name: Assert all bots are Running
+      ansible.builtin.assert:
+        that:
+          - bot_pods | length == 4
+          - bot_pods | selectattr('status.phase', 'equalto', 'Running') | list | length == 4
+        fail_msg: "❌ Не все боты Running! Найдено: {{ bot_pods | length }}"
+        success_msg: "🎉 Все 4 бота Running!"
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "🎉 Все {{ bot_pods | length }} бота работают!"
+          - "============================================"
+          - "{% for pod in bot_pods %}  • {{ pod.metadata.name }}{% endfor %}"

@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ bot.name }}
+  namespace: {{ namespace }}
+  labels:
+    app: {{ bot.name }}
+    managed-by: ansible
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ bot.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ bot.name }}
+    spec:
+      containers:
+      - name: {{ bot.name }}
+        image: {{ bot.image }}
+        imagePullPolicy: Always
+        env:
+        - name: BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ bot.token_secret }}
+              key: BOT_TOKEN
+        resources:
+          requests:
+            memory: "{{ bot_resources.requests.memory }}"
+            cpu: "{{ bot_resources.requests.cpu }}"
+          limits:
+            memory: "{{ bot_resources.limits.memory }}"
+            cpu: "{{ bot_resources.limits.cpu }}"

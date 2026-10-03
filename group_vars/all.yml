@@ -1,0 +1,25 @@
+---
+namespace: default
+kubeconfig: ~/.kube/config
+
+bots:
+  - name: hello-bot
+    image: docin82/hello-bot:latest
+    token_secret: bot-token
+  - name: cat-bot
+    image: docin82/cat-bot:latest
+    token_secret: cat-bot-token
+  - name: echo-bot
+    image: docin82/echo-bot:latest
+    token_secret: echo-bot-token
+  - name: random-bot
+    image: docin82/random-bot:latest
+    token_secret: random-bot-token
+
+bot_resources:
+  requests:
+    memory: "64Mi"
+    cpu: "50m"
+  limits:
+    memory: "128Mi"
+    cpu: "100m"
